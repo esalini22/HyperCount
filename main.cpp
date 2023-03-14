@@ -21,30 +21,9 @@
 using namespace std;
 typedef unsigned long long int ullint;
 
-unsigned char k=31; //largo de kmer
-ullint bits_G;
-ullint bits_T;
-ullint bits_C;
-ullint BITS;
-
 unordered_map<ullint,int> counter;
 multimap<int,ullint,greater<int>> truecont;
-
-/*void to_kmer(unsigned long long int num,unsigned char k){
-	unsigned long long int temp=num;
-	char kmer[k+1];
-	kmer[k]='\0';
-	for(int i=k-1;i>=0;--i){
-		char c=temp&3;
-		if(c==0) kmer[i]='A';
-		else if(c==1) kmer[i]='C';
-		else if(c==2) kmer[i]='G';
-		else if(c==3) kmer[i]='T';
-		temp=temp>>2;
-	}
-	printf("num: %llx\n",num);
-	printf("kmer: %s\n",kmer);
-}*/
+int elements;
 
 void leer(char *genome,HyperCount *hll){
 	char c; //para lectura
@@ -58,78 +37,21 @@ void leer(char *genome,HyperCount *hll){
 
 	hll->addSketch(genome); //añade el sketch inicializado con 0s
 
-	getline(indata,linea); //salta primera linea
 	getline(indata,linea); //para primer kmer
-	string::iterator it=linea.begin();
 
 	//al leerse cada caracter, se insert la base al final del kmer no canonico
 	//y luego se insert su complemento al inicio del complemento del reverso del kmer
 	//el inicio estara dado por el largo del kmer
-	for(unsigned char j=0;j<k;++j){ //inicializacion - primer kmer
-		kmer=kmer<<2;
-		comp=comp>>2;
-		c=*it;
-		++it;
-		if(c=='A') comp=comp|bits_T; //A=00 0xC000000000
-		else if(c=='C'){ //C=01
-			kmer=kmer|0x1;
-			comp=comp|bits_G; //0x8000000000
-		}
-		else if(c=='G'){ //G=10
-			kmer=kmer|0x2;
-			comp=comp|bits_C; //0x4000000000
-		}
-		else if(c=='T') kmer=kmer|0x3; //T=11
-	}
-	//(kmer>comp) ? hll->insert(comp) : hll->insert(kmer); //insert kmer canonico
-	if(kmer>comp){
-		hll->insert(comp);
-		pair<unordered_map<ullint,int>::iterator,bool> ret = counter.insert(pair<ullint,int>(comp,1));
-		if(ret.second==false) counter[comp]++;
-	}
-	else{
-		hll->insert(kmer);
-		pair<unordered_map<ullint,int>::iterator,bool> ret = counter.insert(pair<ullint,int>(kmer,1));
-		if(ret.second==false) counter[kmer]++;
-	}
-
-
+	hll->insert(atoi(linea.c_str()));
+	pair<unordered_map<ullint,int>::iterator,bool> ret=counter.insert(pair<ullint,int>(atoi(linea.c_str()),1));
+	elements++;
+	if(!ret.second) counter[atoi(linea.c_str())]++;
 	while(!indata.eof()){
-		while(it!=linea.end()){
-			c=*it;
-			if(c=='A' || c=='C' || c=='G' || c=='T'){ //lee nueva base
-				kmer=(kmer<<2)&BITS; //desplaza bases a la izquierda
-				comp=comp>>2; //desplaza bases a la derecha
-				if(c=='A') comp=comp|bits_T; //A=00
-				else if(c=='C'){ //C=01
-					kmer=kmer|0x1;
-					comp=comp|bits_G;
-				}
-				else if(c=='G'){ //G=10
-					kmer=kmer|0x2;
-					comp=comp|bits_C;
-				}
-				else if(c=='T') kmer=kmer|0x3; //T=11
-
-				//(kmer>comp) ? hll->insert(comp) : hll->insert(kmer); //insert kmer canonico
-
-				if(kmer>comp){
-					hll->insert(comp);
-					pair<unordered_map<ullint,int>::iterator,bool> ret = counter.insert(pair<ullint,int>(comp,1));
-					if(ret.second==false) counter[comp]++;
-				}
-				else{
-					hll->insert(kmer);
-					pair<unordered_map<ullint,int>::iterator,bool> ret = counter.insert(pair<ullint,int>(kmer,1));
-					if(ret.second==false) counter[kmer]++;
-				}
-
-			}
-			else if(c=='>') break;
-			++it;
-		}
 		getline(indata,linea);
-		it=linea.begin();
+		hll->insert(atoi(linea.c_str()));
+		pair<unordered_map<ullint,int>::iterator,bool> ret=counter.insert(pair<ullint,int>(atoi(linea.c_str()),1));
+		if(!ret.second) counter[atoi(linea.c_str())]++;
+		elements++;
 	}
 	indata.close();
 }
@@ -185,7 +107,7 @@ vector<string> readCompressedFromFile(char* paths){
 vector<string> getCompressed(char** argv, int argc){
 	vector<string> genomes;
 	for(int i=1;i<argc;++i){
-		if(!strcmp(argv[i],"-k") || !strcmp(argv[i],"-p") || !strcmp(argv[i],"-t") || !strcmp(argv[i],"-o") || !strcmp(argv[i],"-f") || !strcmp(argv[i],"-r")) ++i;
+		if(!strcmp(argv[i],"-p") || !strcmp(argv[i],"-t") || !strcmp(argv[i],"-o") || !strcmp(argv[i],"-f") || !strcmp(argv[i],"-r")) ++i;
 		else if(!strcmp(argv[i],"-d")) genomes.push_back(argv[i+1]);
 	}
 	return genomes;
@@ -203,11 +125,6 @@ int main(int argc, char *argv[]){
 	
 	char** option;
 	char** end=argv+argc;
-	option=std::find((char**)argv,end,(const std::string&)"-k");
-	if(option!=end){
-		char val=atoi(*(option+1));
-		if(val<32 && val>1) k=val;
-	}
 	option=std::find((char**)argv,end,(const std::string&)"-p");
 	if(option!=end){
 		char val=atoi(*(option+1));
@@ -225,7 +142,7 @@ int main(int argc, char *argv[]){
 
 	int tam=genomes.size(),tam2=compressed.size();
 	printf("tam: %d, tam2: %d\n",tam,tam2);
-	printf("k: %d p: %d\n",k,p);
+	printf("p: %d\n",p);
 	
 	int numThreads=min(tam+tam2,(int)std::thread::hardware_concurrency());
 
@@ -237,19 +154,11 @@ int main(int argc, char *argv[]){
 	vector<HyperCount*> v_hll;
 	for(int i=0;i<tam+tam2;++i){
 		HyperCount *hll;
-		hll = new HyperCount(p,32-p,k);
+		hll = new HyperCount(p,32-p);
 		v_hll.push_back(hll);
 	}
 
-	//se trabaja a nivel de bits, es mas rapido que trabajar con strings
-	//aca se determina como se insertaran las bases complementarias en el complemento del reverso del kmer
-	//es decir, se determina donde esta el inicio (en bits) de dicho kmer
-	const ullint desp=(2*(k-1));
-	bits_G=(ullint)2<<desp;
-	bits_T=(ullint)3<<desp;
-	bits_C=(ullint)1<<desp;
-	//esto sirve para eliminar la primera base del kmer, luego de desplazar las bases a la izquierda para leer la nueva base
-	BITS=(bits_C-1)<<2;
+	elements=0;
 
 	//lee paralelamente cada archivo
 	omp_set_num_threads(numThreads);
@@ -275,17 +184,26 @@ int main(int argc, char *argv[]){
 	}
 
 
-	for(int i=0;i<tam+tam2;++i)
-		v_hll[i]->print();
+	//for(int i=0;i<tam+tam2;++i)
+		//v_hll[i]->print();
 
 
-	printf("==============================================================\n");
+	/*printf("==============================================================\n");
 	for(unordered_map<ullint,int>::iterator it=counter.begin();it!=counter.end();++it){
 		truecont.insert(pair<int,ullint>(it->second,it->first));
 	}
 	for(multimap<int,ullint>::iterator it=truecont.begin();it!=truecont.end();++it){
 		printf("%d:	%llu\n",it->first,it->second);
+	}*/
+
+	for(int i=0;i<tam+tam2;++i)
+		printf("Entropy estimate: %f\n",v_hll[i]->entropy());
+
+	float true_entropy=0;
+	for(unordered_map<ullint,int>::iterator it=counter.begin();it!=counter.end();++it){
+		true_entropy+=((float)it->second/(float)elements)*log2((float)it->second/(float)elements);
 	}
+	printf("True entropy: %f\n",-(float)true_entropy/(float)log2(counter.size()));
 
 	for(int i=0;i<tam+tam2;++i)
 		delete v_hll[i];
