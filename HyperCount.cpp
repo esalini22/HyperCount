@@ -28,7 +28,7 @@ inline float HyperCount::hsum_avx(__m256 v) {
     return hsum_sse3(lo);                    // and inline the sse3 version
 }
 
-HyperCount::HyperCount(unsigned char n1, unsigned char n2,unsigned char k){
+HyperCount::HyperCount(unsigned char n1, unsigned char n2){
 	srand(time(NULL));
 
 	//omp_set_num_threads(numThreads);
@@ -36,13 +36,11 @@ HyperCount::HyperCount(unsigned char n1, unsigned char n2,unsigned char k){
 	b=n2;
 	bits_v2=(1<<b)-1; //2^b -1
 	N=1<<p; //2^V1
-	a_m=(0.7213/(1+(1.079/N)))*N*N;
 	for(unsigned char i=0;i<16;++i)
 		bit_mask.emplace_back(~((ullint)0xF<<(4*i)));
-	kmer_length=to_string((int)k);
 	sketch_size=to_string(p);
-	ciclos_red=(b+2)/8+(((b+2)%8)>0);
 	min_val=1<<(b-15);
+	cont=0;
 }
 HyperCount::~HyperCount(){}
 
@@ -63,6 +61,7 @@ void HyperCount::addSketch(string genome){
 }
 
 void HyperCount::insert(ullint kmer){
+	cont++;
 	//calculamos el hash usando wyhash de 32 bits (hashing muy rapido)
 	const ullint *key = &kmer;
 	uint32_t hash=wyhash32(key,8,seed);
@@ -106,7 +105,7 @@ void HyperCount::insert(ullint kmer){
 		}
 	}
 
-	else if(temp>w){ //linea añadida por mi, corrige la seria subestimacion cuando no hay colisiones
+	else if(temp>w && aux[v1]>v2){ //linea añadida por mi, mejora significativamente la precision de la entropia de la muestra
 		freq[v1]++;
 	}
 
@@ -150,7 +149,7 @@ void HyperCount::loadSketch(char *infilename){ //¿que pasa si tamaño del sketc
 void HyperCount::saveSketch(){ //usar zlib para comprimir
 	printf("save sketch\n");
 	string temp_name=name;
-	temp_name+=".w."+kmer_length+".spacing."+sketch_size+".hll";
+	temp_name+=".spacing."+sketch_size+".hll";
 	char* outfilename=(char*)temp_name.c_str();
 	printf("%s\n",outfilename);
 	gzFile outfile = gzopen(outfilename, "wb");
@@ -213,4 +212,20 @@ void HyperCount::print(){
 		printf("%d:	%llu\n",it->first,it->second);
 	}
 
+}
+
+float HyperCount::entropy(){
+	unordered_map<ullint,int> table;
+	int size=0;
+	for(unsigned int j=0;j<N;++j){
+		if(freq[j]==0) continue;
+		pair<unordered_map<ullint,int>::iterator,bool> ret=table.insert(pair<ullint,int>(demo[j],freq[j]));
+		if(!ret.second) table[demo[j]]+=freq[j];
+		size+=freq[j];
+	}
+	float ent=0;
+	for(unordered_map<ullint,int>::iterator it=table.begin();it!=table.end();++it){
+		ent+=((float)it->second/(float)size)*log2((float)it->second/(float)size);
+	}
+	return -(float)ent*(float)size*9.3/(float)(log2(table.size())*cont); //entropia normalizada
 }
