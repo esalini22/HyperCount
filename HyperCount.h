@@ -1,7 +1,6 @@
 #ifndef HYPERCOUNT_H
 #define HYPERCOUNT_H
 #include <vector>
-#include <unordered_map>
 #include <string>
 #include <immintrin.h> 
 typedef unsigned long long int ullint;
@@ -11,9 +10,6 @@ class HyperCount{
         unsigned char p,b;
         unsigned int bits_v2; //bits para hacer & en operacion bitwise
         long double N; //corresponde a |M|: numero de buckets - se usa long double para evitar hacer casting al calcular cardinalidad
-        float a_m;
-        int ciclos_red;
-        string kmer_length;
         string sketch_size;
         vector<ullint> bit_mask; //vector de máscaras de bits, usadas para insertar registros
         //se usa vector de ullint, cada celda (64 bits) a su vez tiene hasta 12 buckets
@@ -24,8 +20,9 @@ class HyperCount{
         string name; //vector con los nombres de los genomas
         unsigned int min_val; //minimo valor en v2 para no sobrepasar registro 15
         //unordered_map<ullint,int> counter; //cuenta repeticiones de demo en sketch
+        unsigned int cont; //contador de elementos insertados
     public:
-        HyperCount(unsigned char n1,unsigned char n2,unsigned char k);
+        HyperCount(unsigned char n1,unsigned char n2);
         ~HyperCount();
         inline float hsum_sse3(__m128 v);
         inline float hsum_avx(__m256 v);
@@ -39,5 +36,6 @@ class HyperCount{
         string getName();
         //void saveOutput(char* filename); //guarda las cardinalidades y distancias en un txt
         void print();
+        float entropy();
 };
 #endif
