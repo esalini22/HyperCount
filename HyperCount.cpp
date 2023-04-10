@@ -29,8 +29,6 @@ inline float HyperCount::hsum_avx(__m256 v) {
 }
 
 HyperCount::HyperCount(unsigned char n1, unsigned char n2){
-	srand(time(NULL));
-
 	//omp_set_num_threads(numThreads);
 	p=n1;
 	b=n2;
@@ -40,7 +38,10 @@ HyperCount::HyperCount(unsigned char n1, unsigned char n2){
 		bit_mask.emplace_back(~((ullint)0xF<<(4*i)));
 	sketch_size=to_string(p);
 	min_val=1<<(b-15);
-	cont=0;
+
+	a_m=(0.7213/(1+(1.079/N)))*N*N;
+	ciclos_red=(b+2)/8+(((b+2)%8)>0);
+	M=0;
 }
 HyperCount::~HyperCount(){}
 
@@ -61,7 +62,7 @@ void HyperCount::addSketch(string genome){
 }
 
 void HyperCount::insert(ullint kmer){
-	cont++;
+	M++;
 	//calculamos el hash usando wyhash de 32 bits (hashing muy rapido)
 	const ullint *key = &kmer;
 	uint32_t hash=wyhash32(key,8,seed);
@@ -78,7 +79,7 @@ void HyperCount::insert(ullint kmer){
 	unsigned char bucket=v1%16; //12 buckets por celda
 	ullint temp=(sketch[indice]>>(4*bucket))&0xF;
 
-	if(temp < w || (temp==w && aux[v1]<v2)){ //
+	if(temp < w || (temp==w && aux[v1]<v2)){
 		aux[v1]=v2;
 		freq[v1]=1;
 		//if(demo[v1]!=0) counter[demo[v1]]--;
@@ -105,10 +106,9 @@ void HyperCount::insert(ullint kmer){
 		}
 	}
 
-	else if(temp>w && aux[v1]>v2){ //linea añadida por mi, mejora significativamente la precision de la entropia de la muestra
+	//linea añadida por mi, mejora significativamente la precision de la entropia de la muestra
+	else if(temp>w && aux[v1]>v2) 
 		freq[v1]++;
-	}
-
 	if(w > temp) sketch[indice]=(sketch[indice]&(bit_mask[bucket]))|((ullint)v2<<(4*bucket));
 }
 
@@ -172,6 +172,73 @@ void HyperCount::saveSketch(){ //usar zlib para comprimir
 	gzclose(outfile);
 }
 
+float HyperCount::estCard(){ //cardinalidad individual
+	__m256i vec3; //vector de mascaras de bits
+	ullint bits_and[4]={0xF,0xF,0xF,0xF};
+	vec3=_mm256_loadu_si256((const __m256i*)&bits_and[0]);
+
+	vector<float> w(32,0.0);
+	vector<ullint>::iterator it1=sketch.begin();
+	vector<ullint>::iterator fin=sketch.end();
+	//contamos las repeticiones de w en cada sketch
+	while(it1!=fin){ 
+		ullint i1=*it1;
+		ullint it_array[16]={i1,(i1>>4),(i1>>8),(i1>>12),(i1>>16),(i1>>20),(i1>>24),(i1>>28),(i1>>32),(i1>>36),(i1>>40),(i1>>44),(i1>>48),(i1>>52),(i1>>56),(i1>>60)};
+		__m256i vec4[4];
+		vec4[0]=_mm256_loadu_si256((const __m256i*)&it_array[0]);
+		vec4[1]=_mm256_loadu_si256((const __m256i*)&it_array[4]);
+		vec4[2]=_mm256_loadu_si256((const __m256i*)&it_array[8]);
+		vec4[3]=_mm256_loadu_si256((const __m256i*)&it_array[12]);
+		vec4[0]=_mm256_and_si256(vec3,vec4[0]);
+		vec4[1]=_mm256_and_si256(vec3,vec4[1]);
+		vec4[2]=_mm256_and_si256(vec3,vec4[2]);
+		vec4[3]=_mm256_and_si256(vec3,vec4[3]);
+		__attribute__ ((aligned (32))) ullint out[4];
+		for(int c=0;c<4;++c){
+			_mm256_store_si256((__m256i *)&out[0],vec4[c]);
+			w[out[0]]++;
+			w[out[1]]++;
+			w[out[2]]++;
+			w[out[3]]++;
+		}
+		++it1;
+	}
+	/*while(it1!=fin){ 
+		ullint i1=*it1;
+		for(char i=0;i<16;++i){ //12 registros por celda
+			ullint temp1=i1&0xF;
+			w[temp1]++;
+			i1=i1>>4;
+		}
+		++it1;
+	}*/
+	float card=0.0;
+	float w2[32];
+	for(int i=0;i<32;++i) w2[i]=1.0;
+	int respow=1;
+	for(int i=0;i<b+2;++i){
+		w2[i]=(float)respow;
+		respow=respow<<1;
+	}
+	__m256 vec,vec2;
+	for(int i=0;i<ciclos_red;++i){
+		vec=_mm256_loadu_ps((const float *)&w[i*8]);
+		vec2=_mm256_loadu_ps((const float *)&w2[i*8]);
+		vec=_mm256_div_ps(vec,vec2);
+		card+=hsum_avx(vec);
+	}
+
+	//media armonica
+	card=(float)a_m/card;
+	int ceros = w[0];
+	if(ceros && card<=5*N/2) //C_HLL, ln cuando hay muchos ceros;
+		card=N*log(N/ceros);
+	else if(card>lim/30)
+		card=-lim*log(1-(card/lim));
+	//printf("estimacion cardinalidad %s: %f\n",name.c_str(),card);
+	return card;
+}
+
 vector<ullint> HyperCount::merge(HyperCount *hll){ //hace la union y devuelve un nuevo sketch
 	vector<ullint> sketch2=hll->getSketch();
 	vector<ullint> ret=max(sketch,sketch2);
@@ -215,17 +282,20 @@ void HyperCount::print(){
 }
 
 float HyperCount::entropy(){
+	//unsigned L=0,K=0;
 	unordered_map<ullint,int> table;
-	int size=0;
 	for(unsigned int j=0;j<N;++j){
-		if(freq[j]==0) continue;
+		if(!freq[j]) continue;
 		pair<unordered_map<ullint,int>::iterator,bool> ret=table.insert(pair<ullint,int>(demo[j],freq[j]));
 		if(!ret.second) table[demo[j]]+=freq[j];
-		size+=freq[j];
 	}
 	float ent=0;
 	for(unordered_map<ullint,int>::iterator it=table.begin();it!=table.end();++it){
-		ent+=((float)it->second/(float)size)*log2((float)it->second/(float)size);
+		//L+=(float)it->second;
+		//K++;
+		ent+=((float)it->second/(float)M)*log2((float)it->second/(float)M);
 	}
-	return -(float)ent*(float)size*9.3/(float)(log2(table.size())*cont); //entropia normalizada
+	float N=estCard();
+	//ent+=((float)(M-L)/(float)M)*log2((float)(M-L)/(float)(M*(N-K)));
+	return -10.0*(float)ent/(float)log2(N);
 }
