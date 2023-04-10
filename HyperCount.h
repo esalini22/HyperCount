@@ -20,7 +20,7 @@ class HyperCount{
         string name; //vector con los nombres de los genomas
         unsigned int min_val; //minimo valor en v2 para no sobrepasar registro 15
         //unordered_map<ullint,int> counter; //cuenta repeticiones de demo en sketch
-        unsigned int cont; //contador de elementos insertados
+        unsigned int M; //contador de elementos insertados
     public:
         HyperCount(unsigned char n1,unsigned char n2);
         ~HyperCount();
